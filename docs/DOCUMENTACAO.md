@@ -131,6 +131,28 @@ Fluxo: `10-network` (IPs + forwarding) → `20-nat` (pf: NAT + isolamento) → `
 - Exige hardware real com **duas interfaces de rede** (virtualização não é admitida).
 - Os scripts foram escritos para FreeBSD; em outro SO é preciso adaptá-los.
 
-# 9. Problemas que enfretamos
+## 9. Problemas que enfrentamos e soluções adotadas
+
+Durante a concepção, implementação e testes do gateway em FreeBSD, foram enfrentados e solucionados os seguintes desafios técnicos:
+
+1. **Ordem estrita das regras no Packet Filter (PF):**
+   - *Desafio:* O `pf` exige uma estrutura rígida no arquivo de regras: primeiro macros e opções globais, depois regras de tradução (`nat`/`rdr`) e por fim regras de filtragem (`block`/`pass`). Qualquer regra fora de ordem impede o carregamento do firewall.
+   - *Solução:* Adotou-se uma arquitetura modular baseada em fragmentos numerados (`templates/pf/00-macros.conf.tpl` a `50-icmp.conf.tpl`). A função `pf_reload` em `lib/common.sh` concatena os fragmentos em ordem alfabética e valida previamente a sintaxe com `pfctl -nf /etc/pf.conf.new` antes de aplicar ao sistema.
+
+2. **Descarte de logs do DHCP pelo syslogd padrão:**
+   - *Desafio:* O servidor ISC dhcpd emite as mensagens de concessão (`DHCPDISCOVER`, `DHCPOFFER`, `DHCPREQUEST`, `DHCPACK`) na prioridade `info`. O `syslogd` padrão do FreeBSD descarta ou mistura essas mensagens no `/var/log/messages`, dificultando o acompanhamento exigido no enunciado.
+   - *Solução:* Configurou-se a diretiva `log-facility local7;` no `dhcpd.conf` e criou-se a regra `/etc/syslog.d/dhcpd.conf` direcionando `local7.*` para `/var/log/dhcpd.log`, permitindo auditoria isolada e em tempo real via `tail -f`.
+
+3. **Validação do NAT com bloqueio de ICMP ativo:**
+   - *Desafio:* O requisito de firewall bloqueia o envio de pacotes ICMP *echo-request* da LAN para fora. Com isso, testes convencionais de conectividade e NAT baseados em `ping` falham por especificação de projeto.
+   - *Solução:* A validação de tradução de endereços (NAT) foi estabelecida através de consultas DNS via UDP (`host unb.br 164.41.101.4`) e inspeção da tabela de estados do roteador com `pfctl -ss | grep '('`. Isso comprova o funcionamento pleno do NAT sem violar a regra de firewall.
+
+4. **Persistência do servidor TCP nos testes de DNAT:**
+   - *Desafio:* Ao testar o redirecionamento de portas WAN:80 → LAN:8080 com `nc -l 8080` no cliente da LAN, o processo padrão do `netcat` finaliza imediatamente após a primeira desconexão do cliente.
+   - *Solução:* Padronizou-se o comando de escuta com um loop contínuo (`while true; do nc -l 8080; done`), viabilizando múltiplos testes de validação com `telnet` e `tests/client/wan-client.sh`.
+
+5. **Identificação e suporte a adaptadores de rede USB:**
+   - *Desafio:* Em notebooks com apenas uma interface de rede onboard, o uso de placas de rede USB resulta em nomes variáveis (`ue0`, `ue1`, `re0`, etc.) e necessidade de módulos de kernel específicos (`if_ure` para Realtek, `if_axge` para ASIX).
+   - *Solução:* Centralizou-se a parametrização das interfaces no arquivo `config/gateway.conf` (`WAN_IF` e `LAN_IF`) e incluiu-se a identificação via `ifconfig -l` e instruções de carregamento de drivers no roteiro, evitando dependências fixas no código.
 
 
