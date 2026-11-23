@@ -1,6 +1,7 @@
-# Arquivos de insights, anotacoes e guias pessoais
+# Arquivos de insights, anotacoes e guias pessoais (nao sobem pro repo)
 INSIGHTS_*.md
 GUIA_*.md
 *.log
 *.tmp
+*.pcap
 .DS_Store
