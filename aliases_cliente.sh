@@ -8,6 +8,20 @@
 # Interface de rede cabeada padrão
 export CLIENT_IFACE="eno1"
 export ORIGINAL_MAC="ec:f4:bb:f6:43:b3"
+export LAN_GW="10.10.0.1"
+
+# Helper interno: força a rota default para o gateway da LAN via cabo.
+# Isso é o que fazia funcionar de verdade a troca de IP:
+# o dhclient sozinho nao sobrescreve a rota default quando ha Wi-Fi ativa.
+_forcar_rota_default() {
+    local GW="${1:-$LAN_GW}"
+    # Remove qualquer rota default existente (pode ser da Wi-Fi ou rota antiga)
+    sudo ip route del default 2>/dev/null || true
+    # Adiciona a rota default apontando para o gateway do BSD via cabo
+    sudo ip route add default via "$GW" dev "$CLIENT_IFACE"
+    echo ">> Rota default configurada: gateway $GW via $CLIENT_IFACE"
+    ip route show | grep default
+}
 
 # --- 1. CONTROLE DE WI-FI ---
 # Desliga o Wi-Fi (essencial para que todo o tráfego saia pelo cabo conectado ao BSD)
@@ -32,6 +46,10 @@ renovarip() {
     sudo dhclient -r "$CLIENT_IFACE" 2>/dev/null || sudo nmcli device disconnect "$CLIENT_IFACE"
     sleep 1
     sudo dhclient "$CLIENT_IFACE" 2>/dev/null || sudo nmcli device connect "$CLIENT_IFACE"
+    sleep 1
+    # IMPORTANTE: dhclient sozinho nao sobrescreve a rota default quando ha Wi-Fi ativa.
+    # Esta linha garante que o trafego saia pelo cabo e passe pelo roteador BSD.
+    _forcar_rota_default "$LAN_GW"
     echo ">> IP atualizado:"
     ip -4 addr show "$CLIENT_IFACE" | grep inet
 }
@@ -41,7 +59,7 @@ renovarip() {
 fixarip() {
     local IP="$1"
     local MASK="${2:-16}"
-    local GW="${3:-10.10.0.1}"
+    local GW="${3:-$LAN_GW}"
     if [ -z "$IP" ]; then
         echo "Uso: fixarip <IP> [mascara] [gateway]"
         echo "Exemplo: fixarip 10.10.0.50"
@@ -51,10 +69,9 @@ fixarip() {
     sudo ip addr flush dev "$CLIENT_IFACE"
     sudo ip addr add "$IP/$MASK" dev "$CLIENT_IFACE"
     sudo ip link set dev "$CLIENT_IFACE" up
-    sudo ip route add default via "$GW" dev "$CLIENT_IFACE" 2>/dev/null || true
+    _forcar_rota_default "$GW"
     echo ">> Configuração manual aplicada:"
     ip -4 addr show "$CLIENT_IFACE" | grep inet
-    ip route show | grep default
 }
 
 # Solicita OUTRO IP da rede (gera um MAC temporário aleatório para pegar um IP dinâmico do pool DHCP)
@@ -70,6 +87,9 @@ pedirnovoippool() {
     sudo dhclient -r "$CLIENT_IFACE" 2>/dev/null
     sleep 1
     sudo dhclient "$CLIENT_IFACE"
+    sleep 1
+    # Garante rota default via BSD mesmo com Wi-Fi ativa
+    _forcar_rota_default "$LAN_GW"
     echo ">> Novo IP recebido do roteador BSD:"
     ip -4 addr show "$CLIENT_IFACE" | grep inet
 }
@@ -84,6 +104,9 @@ restaurarmac() {
     sudo dhclient -r "$CLIENT_IFACE" 2>/dev/null
     sleep 1
     sudo dhclient "$CLIENT_IFACE"
+    sleep 1
+    # Garante rota default via BSD mesmo com Wi-Fi ativa
+    _forcar_rota_default "$LAN_GW"
     echo ">> IP obtido (deve ser o IP estático reservado no dhcpd.conf):"
     ip -4 addr show "$CLIENT_IFACE" | grep inet
 }
