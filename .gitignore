@@ -1,0 +1,6 @@
+# Arquivos de insights, anotacoes e guias pessoais
+INSIGHTS_*.md
+GUIA_*.md
+*.log
+*.tmp
+.DS_Store
